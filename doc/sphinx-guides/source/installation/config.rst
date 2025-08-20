@@ -108,6 +108,33 @@ Out of the box, your Dataverse installation will list email addresses of the con
 Additional Recommendations
 ++++++++++++++++++++++++++
 
+Restricting Payara's HTTP Listener to Localhost
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+If Apache or Nginx is running on the same host as Payara, and you do not need direct access
+to Payara from outside (for example, you only want access via Apache on ports 80/443),
+you can bind Payara’s HTTP listener (``http-listener-1``, which is port 8080 by default) to ``127.0.0.1``.
+
+This ensures the service is only reachable locally and not from the public internet.
+
+.. code-block:: bash
+
+   asadmin set configs.config.server-config.network-config.network-listeners.network-listener.http-listener-1.address=127.0.0.1
+   asadmin restart-domain
+
+After this change:
+
+* Apache/Nginx continues to serve on ports 80 and 443.
+* Direct external access to ``:8080`` is blocked.
+* Local requests to ``127.0.0.1:8080`` still work (needed for the proxy).
+
+.. warning::
+
+   Do not use this configuration if your Apache/Nginx proxy is running on a different host
+   than Payara, or if your setup requires direct access to 8080 from other servers.
+
+For extra security, also remove port 8080 from your host firewall rules or your cloud provider's
+security group so that it cannot be exposed accidentally in the future.
+
 Run Payara as a User Other Than Root
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -240,9 +267,12 @@ If you really don't want to front Payara with any proxy (not recommended), you c
 
 What about port 80? Even if you don't front your Dataverse installation with Apache, you may want to let Apache run on port 80 just to rewrite HTTP to HTTPS as described above. You can use a similar command as above to change the HTTP port that Payara uses from 8080 to 80 (substitute ``http-listener-1.port=80``). Payara can be used to enforce HTTPS on its own without Apache, but configuring this is an exercise for the reader. Answers here may be helpful: https://stackoverflow.com/questions/25122025/glassfish-v4-java-7-port-unification-error-not-able-to-redirect-http-to
 
-If you are running an installation with Apache and Payara on the same server, and would like to restrict Payara from responding to any requests to port 8080 from external hosts (in other words, not through Apache), you can restrict the AJP listener to localhost only with:
+If you are running an installation with Apache and Payara on the same server, and would like to restrict Payara from responding to any requests to port 8080 from external hosts (in other words, not through Apache), you can restrict Payara’s HTTP listener (``http-listener-1``) to localhost only with:
 
-``./asadmin set server-config.network-config.network-listeners.network-listener.http-listener-1.address=127.0.0.1``
+.. code-block:: bash
+
+   asadmin set configs.config.server-config.network-config.network-listeners.network-listener.http-listener-1.address=127.0.0.1
+   asadmin restart-domain
 
 You should **NOT** use the configuration option above if you are running in a load-balanced environment, or otherwise have the web server on a different host than the application server.
 
@@ -957,28 +987,7 @@ Logging & Slow Performance
      - When set to true, all JDBC calls will be logged allowing tracing of all JDBC interactions including SQL.
      - ``false``
 
-Database Configuration Tips
-+++++++++++++++++++++++++++
 
-In this section you can find some example scenarios of advanced configuration for the database connection that can improve service performance and availability.
-
-Database Connection Recovery
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Consider the following scenario: if there is no advanced configuration for the database connection and the Dataverse server loses that connection, for example if the database host is down, the server will be "dead" even after the database server is back to normal.
-The only solution to recover Dataverse would be to restart the service. To avoid this situation, the following settings can be used to configure validation of the database connection. 
-This way, the database connection can be automatically recovered after a failure, improving the server availability. For a Docker installation, it is suggested to create an init.d script so that if the container needs to be recreated, these settings will always be configured.
-
-.. code-block:: bash
-
-  # Enable database connection validation
-  asadmin create-jvm-options "-Ddataverse.db.is-connection-validation-required=true"
-  # Configure to use a database table as the validation method
-  asadmin create-jvm-options "-Ddataverse.db.connection-validation-method=table"
-  # Configure the "setting" table to be used for connection validation, but any tables can be used
-  asadmin create-jvm-options "-Ddataverse.db.validation-table-name=setting"
-  # Configure a validation period of 60 seconds, but different values may be used
-  asadmin create-jvm-options "-Ddataverse.db.validate-atmost-once-period-in-seconds=60"
 
 .. _file-storage:
 
@@ -1440,11 +1449,6 @@ And lastly, to start up the SeaweedFS server and various components you could us
 .. code-block:: bash
 
   weed server -s3 -metricsPort=9327 -dir=/data -s3.config=/config.json
-
-`VAST DataStore <https://www.vastdata.com/platform/datastore>`_
-  VAST DataStore must be configured with an S3 gateway. A Dataverse bucket must be created. 
-  Follow `VAST DataStore documentation <https://support.vastdata.com/s/document-item?bundleId=vast-cluster-administrator-s-guide4.7&topicId=managing-access-protocols/s3-object-storage-protocol.html&_LANG=enus>`_ to configure the S3 gateway.
-  Set ``dataverse.files.<id>.path-style-access=true`` since VAST DataStore uses path style access.
 
 **Additional Reported Working S3-Compatible Storage**
 
@@ -3751,9 +3755,6 @@ please find all known feature flags below. Any of these flags can be activated u
       - ``Off``
     * - api-bearer-auth-use-builtin-user-on-id-match
       - Allows the use of a built-in user account when an identity match is found during API bearer authentication. This feature enables automatic association of an incoming IdP identity with an existing built-in user account, bypassing the need for additional user registration steps. This feature only works when the feature flag ``api-bearer-auth`` is also enabled. **Caution: Enabling this feature flag exposes the installation to potential user impersonation issues depending on the specifics of the IdP configured (For example, if it is configured such that an attacker can create a new account in the IdP, or configured social login account, matching a Dataverse built-in account).**
-      - ``Off``
-    * - api-bearer-auth-use-shib-user-on-id-match
-      - Allows the use of a Shibboleth user account when an identity match is found during API bearer authentication. This feature enables automatic association of an incoming IdP identity with an existing Shibboleth user account, bypassing the need for additional user registration steps. This feature only works when the feature flag ``api-bearer-auth`` is also enabled. **Caution: Enabling this flag could result in impersonation risks if (and only if) used with a misconfigured IdP.**
       - ``Off``
     * - avoid-expensive-solr-join
       - Changes the way Solr queries are constructed for public content (published Collections, Datasets and Files). It removes a very expensive Solr join on all such documents, improving overall performance, especially for large instances under heavy load. Before this feature flag is enabled, the corresponding indexing feature (see next feature flag) must be turned on and a full reindex performed (otherwise public objects are not going to be shown in search results). See :doc:`/admin/solr-search-index`. 
